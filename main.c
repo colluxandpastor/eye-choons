@@ -1164,17 +1164,76 @@ int LoadLocalCachedLibrary() {
     return 1;
 }
 
+static void GetArtworkCacheDir(char *outDir, int maxLen) {
+    char tempPath[MAX_PATH] = {0};
+    if (GetTempPathA(MAX_PATH, tempPath) > 0) {
+        snprintf(outDir, maxLen, "%sEyeChoons_Artwork_%lu", tempPath, GetCurrentProcessId());
+    } else {
+        snprintf(outDir, maxLen, "EyeChoons_Artwork_%lu", GetCurrentProcessId());
+    }
+    CreateDirectoryA(outDir, NULL);
+}
+
+static void CleanupTempArtwork() {
+    char cacheDir[MAX_PATH];
+    char tempPath[MAX_PATH] = {0};
+    if (GetTempPathA(MAX_PATH, tempPath) > 0) {
+        snprintf(cacheDir, sizeof(cacheDir), "%sEyeChoons_Artwork_%lu", tempPath, GetCurrentProcessId());
+    } else {
+        snprintf(cacheDir, sizeof(cacheDir), "EyeChoons_Artwork_%lu", GetCurrentProcessId());
+    }
+
+    char searchPattern[MAX_PATH];
+    snprintf(searchPattern, sizeof(searchPattern), "%s\\*.*", cacheDir);
+
+    WIN32_FIND_DATAA ffd;
+    HANDLE hFind = FindFirstFileA(searchPattern, &ffd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                char filePath[MAX_PATH];
+                snprintf(filePath, sizeof(filePath), "%s\\%s", cacheDir, ffd.cFileName);
+                DeleteFileA(filePath);
+            }
+        } while (FindNextFileA(hFind, &ffd));
+        FindClose(hFind);
+    }
+    RemoveDirectoryA(cacheDir);
+}
+
+static void CleanupStaleTempFiles() {
+    char tempPath[MAX_PATH] = {0};
+    if (GetTempPathA(MAX_PATH, tempPath) <= 0) return;
+
+    char searchDb[MAX_PATH];
+    snprintf(searchDb, sizeof(searchDb), "%sEyeChoons_*.db*", tempPath);
+    WIN32_FIND_DATAA ffd;
+    HANDLE hFind = FindFirstFileA(searchDb, &ffd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                char full[MAX_PATH];
+                snprintf(full, sizeof(full), "%s%s", tempPath, ffd.cFileName);
+                if (g_localDbPath[0] == '\0' || _stricmp(full, g_localDbPath) != 0) {
+                    DeleteFileA(full);
+                }
+            }
+        } while (FindNextFileA(hFind, &ffd));
+        FindClose(hFind);
+    }
+}
+
 static void PreCacheDeviceArtwork(AppleSession *pSess) {
     if (!pSess) return;
 
     char cacheDir[MAX_PATH];
-    snprintf(cacheDir, sizeof(cacheDir), "%s\\ArtworkCache", g_appDir);
-    CreateDirectoryA(cacheDir, NULL);
+    GetArtworkCacheDir(cacheDir, sizeof(cacheDir));
 
     char visitedTokens[512][32];
     int visitedCount = 0;
 
     for (int i = 0; i < g_deviceTrackCount && visitedCount < 512; i++) {
+        if (!g_devThreadRunning) break;
         const char *tok = g_deviceTracks[i].artworkToken;
         if (!tok || !tok[0]) continue;
 
@@ -1211,12 +1270,13 @@ static void PreCacheDeviceArtwork(AppleSession *pSess) {
                 unsigned long long bytesRead = 0;
                 unsigned long long totalRead = 0;
                 while (Apple_AfcReadFile(pSess, hRemote, buf, sizeof(buf), &bytesRead) == 0 && bytesRead > 0) {
+                    if (!g_devThreadRunning) break;
                     fwrite(buf, 1, (size_t)bytesRead, fOut);
                     totalRead += bytesRead;
                     bytesRead = 0;
                 }
                 fclose(fOut);
-                if (totalRead == 0) DeleteFileA(localJpg);
+                if (totalRead == 0 || !g_devThreadRunning) DeleteFileA(localJpg);
             }
             Apple_AfcCloseFile(pSess, hRemote);
         }
@@ -1237,6 +1297,7 @@ int LoadDeviceLibrary() {
             if (buf) {
                 unsigned long long bytesRead = 0;
                 while (Apple_AfcReadFile(&sess, file, buf, 262144, &bytesRead) == 0 && bytesRead > 0) {
+                    if (!g_devThreadRunning) break;
                     fwrite(buf, 1, (size_t)bytesRead, localF);
                     bytesRead = 0;
                 }
@@ -1264,6 +1325,7 @@ static void CleanupTempDatabase() {
         snprintf(tmpShm, sizeof(tmpShm), "%s-shm", g_localDbPath);
         DeleteFileA(tmpShm);
     }
+    CleanupTempArtwork();
 }
 
 DWORD WINAPI DeviceMonitorThread(LPVOID param) {
@@ -1698,8 +1760,7 @@ static int FetchDeviceArtworkToCache(const char *token, wchar_t *outCachePath, i
     if (!token || !token[0]) return 0;
 
     char cacheDir[MAX_PATH];
-    snprintf(cacheDir, sizeof(cacheDir), "%s\\ArtworkCache", g_appDir);
-    CreateDirectoryA(cacheDir, NULL);
+    GetArtworkCacheDir(cacheDir, sizeof(cacheDir));
 
     char localJpg[MAX_PATH];
     snprintf(localJpg, sizeof(localJpg), "%s\\%s.jpg", cacheDir, token);
@@ -2568,8 +2629,7 @@ DWORD WINAPI SyncQueueWorker(LPVOID param) {
                                         }
 
                                         char cacheDir[MAX_PATH];
-                                        snprintf(cacheDir, sizeof(cacheDir), "%s\\ArtworkCache", g_appDir);
-                                        CreateDirectoryA(cacheDir, NULL);
+                                        GetArtworkCacheDir(cacheDir, sizeof(cacheDir));
                                         char localCachePath[MAX_PATH];
                                         snprintf(localCachePath, sizeof(localCachePath), "%s\\%s.jpg", cacheDir, artTok);
                                         FILE *fLocalArt = fopen(localCachePath, "wb");
@@ -2932,6 +2992,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_APP_DEVICE_DISCONNECTED: {
+        if (g_pPreviewBitmap && pDispose) {
+            pDispose((GpImage*)g_pPreviewBitmap);
+            g_pPreviewBitmap = NULL;
+        }
+        CleanupTempArtwork();
+
         TVITEMW tvi;
         memset(&tvi, 0, sizeof(tvi));
         tvi.hItem = g_hItemLibrary;
@@ -3461,17 +3527,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
+    case WM_CLOSE:
+        DestroyWindow(hWnd);
+        break;
+
     case WM_DESTROY:
-        CleanupTempDatabase();
+        g_devThreadRunning = 0;
+        if (g_hDevThread) {
+            WaitForSingleObject(g_hDevThread, 3000);
+            CloseHandle(g_hDevThread);
+            g_hDevThread = NULL;
+        }
         if (g_pPreviewBitmap && pDispose) {
             pDispose((GpImage*)g_pPreviewBitmap);
             g_pPreviewBitmap = NULL;
         }
-        g_devThreadRunning = 0;
-        if (g_hDevThread) {
-            WaitForSingleObject(g_hDevThread, 1000);
-            CloseHandle(g_hDevThread);
-        }
+        CleanupTempArtwork();
+        CleanupTempDatabase();
         if (g_deviceTracks) {
             free(g_deviceTracks);
             g_deviceTracks = NULL;
@@ -3498,6 +3570,7 @@ int InitAppleConduits() {
     } else {
         snprintf(g_localDbPath, sizeof(g_localDbPath), "EyeChoons_%lu.tmp", GetCurrentProcessId());
     }
+    CleanupStaleTempFiles();
 
     HMODULE hSql = LoadLibraryA("winsqlite3.dll");
     if (!hSql) hSql = LoadLibraryA("sqlite3.dll");
