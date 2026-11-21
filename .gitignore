@@ -1,0 +1,32 @@
+# Executables & object files
+*.exe
+*.o
+*.obj
+*.dll
+
+# Proprietary Apple runtime DLLs (obsolete - zero DLLs required)
+apple_dlls*/
+
+# Personal iPhone database snapshots and backups
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlitedb
+backup*/
+ArtworkCache/
+
+# Temporary and reverse engineering scratch test files
+*.tmp
+*.log
+*.bak
+test_*.py
+test_*.c
+
+# Editor and IDE configurations
+.vscode/
+.idea/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
