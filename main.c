@@ -60,17 +60,17 @@
 // Modern Clean Glossy Palette
 #define COLOR_TOOLBAR_TOP   RGB(253, 254, 255)
 #define COLOR_TOOLBAR_BOT   RGB(240, 243, 248)
-#define COLOR_BORDER_LINE   RGB(212, 216, 222)
-#define COLOR_SIDEBAR_BG    RGB(244, 246, 249)
-#define COLOR_SIDEBAR_SEL   RGB(218, 228, 245)
+#define COLOR_BORDER_LINE   RGB(214, 218, 226)
+#define COLOR_SIDEBAR_BG    RGB(246, 248, 251)
+#define COLOR_SIDEBAR_SEL   RGB(224, 235, 250)
 
 #define COLOR_ZEBRA_EVEN    RGB(255, 255, 255)
-#define COLOR_ZEBRA_ODD     RGB(248, 250, 253)
-#define COLOR_ZEBRA_SEL     RGB(0, 122, 255)
+#define COLOR_ZEBRA_ODD     RGB(249, 250, 253)
+#define COLOR_ZEBRA_SEL     RGB(0, 114, 239)
 
-#define COLOR_TEXT_MUTED    RGB(130, 136, 146)
-#define COLOR_TEXT_SUCCESS  RGB(38, 142, 68)
-#define COLOR_TEXT_PRIMARY  RGB(28, 32, 38)
+#define COLOR_TEXT_MUTED    RGB(125, 132, 144)
+#define COLOR_TEXT_SUCCESS  RGB(22, 138, 62)
+#define COLOR_TEXT_PRIMARY  RGB(24, 28, 38)
 
 typedef enum {
     VIEW_DEVICE_LIBRARY = 0,
@@ -533,6 +533,17 @@ static void DrawGlossyButton(DRAWITEMSTRUCT *dis, int isHovered, const wchar_t *
     // Vertical gradient
     DrawGradient(memDC, rcFull, curTop, curBot);
 
+    // Apple liquid gloss specular arch (subtle lighter gradient in top 45%)
+    if (curSheen != 0 && !isPressed && !isDisabled && h > 14) {
+        RECT rcTopArch = {0, 0, w, h * 9 / 20};
+        COLORREF archTop = RGB(
+            GetRValue(curTop) + (255 - GetRValue(curTop)) * 3 / 10,
+            GetGValue(curTop) + (255 - GetGValue(curTop)) * 3 / 10,
+            GetBValue(curTop) + (255 - GetBValue(curTop)) * 3 / 10
+        );
+        DrawGradient(memDC, rcTopArch, archTop, curTop);
+    }
+
     // Glossy top specular reflection highlight (Apple sheen)
     if (curSheen != 0 && !isPressed && !isDisabled && h > 10) {
         HPEN sheenPen = CreatePen(PS_SOLID, 1, curSheen);
@@ -556,6 +567,22 @@ static void DrawGlossyButton(DRAWITEMSTRUCT *dis, int isHovered, const wchar_t *
     SelectObject(memDC, oldBrush);
     SelectObject(memDC, oldPen);
     DeleteObject(bPen);
+
+    // Subtle bottom rim depth bevel
+    if (!isPressed && !isDisabled && h > 12) {
+        COLORREF botDepth = RGB(
+            GetRValue(curBorder) * 8 / 10,
+            GetGValue(curBorder) * 8 / 10,
+            GetBValue(curBorder) * 8 / 10
+        );
+        HPEN botDepthPen = CreatePen(PS_SOLID, 1, botDepth);
+        HGDIOBJ oldP = SelectObject(memDC, botDepthPen);
+        int margin = cornerRadius / 2 + 1;
+        MoveToEx(memDC, margin, h - 2, NULL);
+        LineTo(memDC, w - margin, h - 2);
+        SelectObject(memDC, oldP);
+        DeleteObject(botDepthPen);
+    }
 
     // Draw text
     SetBkMode(memDC, TRANSPARENT);
@@ -652,29 +679,29 @@ void SwitchView(ActiveView view) {
 
     LVCOLUMNW lvc;
     memset(&lvc, 0, sizeof(LVCOLUMNW));
-    lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+    lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM | LVCF_FMT;
 
     if (view == VIEW_DEVICE_LIBRARY) {
-        lvc.iSubItem = 0; lvc.cx = 45;  lvc.pszText = L"#";           ListView_InsertColumn(g_hListView, 0, &lvc);
-        lvc.iSubItem = 1; lvc.cx = 260; lvc.pszText = L"Title";       ListView_InsertColumn(g_hListView, 1, &lvc);
-        lvc.iSubItem = 2; lvc.cx = 180; lvc.pszText = L"Artist";      ListView_InsertColumn(g_hListView, 2, &lvc);
-        lvc.iSubItem = 3; lvc.cx = 200; lvc.pszText = L"Album";       ListView_InsertColumn(g_hListView, 3, &lvc);
-        lvc.iSubItem = 4; lvc.cx = 65;  lvc.pszText = L"Time";        ListView_InsertColumn(g_hListView, 4, &lvc);
-        lvc.iSubItem = 5; lvc.cx = 75;  lvc.pszText = L"Size";        ListView_InsertColumn(g_hListView, 5, &lvc);
-        lvc.iSubItem = 6; lvc.cx = 140; lvc.pszText = L"Location";    ListView_InsertColumn(g_hListView, 6, &lvc);
+        lvc.iSubItem = 0; lvc.cx = 40;  lvc.fmt = LVCFMT_CENTER; lvc.pszText = L"#";           ListView_InsertColumn(g_hListView, 0, &lvc);
+        lvc.iSubItem = 1; lvc.cx = 240; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Title";       ListView_InsertColumn(g_hListView, 1, &lvc);
+        lvc.iSubItem = 2; lvc.cx = 160; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Artist";      ListView_InsertColumn(g_hListView, 2, &lvc);
+        lvc.iSubItem = 3; lvc.cx = 170; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Album";       ListView_InsertColumn(g_hListView, 3, &lvc);
+        lvc.iSubItem = 4; lvc.cx = 60;  lvc.fmt = LVCFMT_RIGHT;  lvc.pszText = L"Time";        ListView_InsertColumn(g_hListView, 4, &lvc);
+        lvc.iSubItem = 5; lvc.cx = 65;  lvc.fmt = LVCFMT_RIGHT;  lvc.pszText = L"Size";        ListView_InsertColumn(g_hListView, 5, &lvc);
+        lvc.iSubItem = 6; lvc.cx = 110; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Location";    ListView_InsertColumn(g_hListView, 6, &lvc);
 
         EnableWindow(g_hBtnExport, TRUE);
         ShowWindow(g_hBtnRemove, SW_HIDE);
         ShowWindow(g_hBtnClear, SW_HIDE);
         ShowWindow(g_hBtnSyncQueue, SW_HIDE);
     } else {
-        lvc.iSubItem = 0; lvc.cx = 40;  lvc.pszText = L"#";           ListView_InsertColumn(g_hListView, 0, &lvc);
-        lvc.iSubItem = 1; lvc.cx = 145; lvc.pszText = L"Status";      ListView_InsertColumn(g_hListView, 1, &lvc);
-        lvc.iSubItem = 2; lvc.cx = 220; lvc.pszText = L"Title";       ListView_InsertColumn(g_hListView, 2, &lvc);
-        lvc.iSubItem = 3; lvc.cx = 160; lvc.pszText = L"Artist";      ListView_InsertColumn(g_hListView, 3, &lvc);
-        lvc.iSubItem = 4; lvc.cx = 160; lvc.pszText = L"Album";       ListView_InsertColumn(g_hListView, 4, &lvc);
-        lvc.iSubItem = 5; lvc.cx = 75;  lvc.pszText = L"Size";        ListView_InsertColumn(g_hListView, 5, &lvc);
-        lvc.iSubItem = 6; lvc.cx = 260; lvc.pszText = L"Local Path";  ListView_InsertColumn(g_hListView, 6, &lvc);
+        lvc.iSubItem = 0; lvc.cx = 40;  lvc.fmt = LVCFMT_CENTER; lvc.pszText = L"#";           ListView_InsertColumn(g_hListView, 0, &lvc);
+        lvc.iSubItem = 1; lvc.cx = 145; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Status";      ListView_InsertColumn(g_hListView, 1, &lvc);
+        lvc.iSubItem = 2; lvc.cx = 220; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Title";       ListView_InsertColumn(g_hListView, 2, &lvc);
+        lvc.iSubItem = 3; lvc.cx = 160; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Artist";      ListView_InsertColumn(g_hListView, 3, &lvc);
+        lvc.iSubItem = 4; lvc.cx = 160; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Album";       ListView_InsertColumn(g_hListView, 4, &lvc);
+        lvc.iSubItem = 5; lvc.cx = 75;  lvc.fmt = LVCFMT_RIGHT;  lvc.pszText = L"Size";        ListView_InsertColumn(g_hListView, 5, &lvc);
+        lvc.iSubItem = 6; lvc.cx = 260; lvc.fmt = LVCFMT_LEFT;   lvc.pszText = L"Local Path";  ListView_InsertColumn(g_hListView, 6, &lvc);
 
         EnableWindow(g_hBtnExport, FALSE);
         ShowWindow(g_hBtnRemove, SW_SHOW);
@@ -802,7 +829,7 @@ void PopulateListView() {
 
     if (g_hSidebar && g_hItemQueue) {
         wchar_t qTitle[64];
-        swprintf(qTitle, 64, L"Transfer Queue (%d)", g_queueCount);
+        swprintf(qTitle, 64, L"⚡ Transfer Queue (%d)", g_queueCount);
         TVITEMW tviQ; memset(&tviQ, 0, sizeof(tviQ));
         tviQ.hItem = g_hItemQueue; tviQ.mask = TVIF_TEXT; tviQ.pszText = qTitle;
         SendMessageW(g_hSidebar, TVM_SETITEMW, 0, (LPARAM)&tviQ);
@@ -1837,11 +1864,25 @@ static LRESULT CALLBACK ArtPreviewWndProc(HWND hWnd, UINT msg, WPARAM wParam, LP
 
         // Modern White Card Container with rounded corners
         RECT rcCard = { 2, 2, rc.right - 2, rc.bottom - 2 };
-        HPEN cardBorderPen = CreatePen(PS_SOLID, 1, RGB(214, 218, 226));
+
+        // Ambient soft card shadow
+        RECT rcShadow = { rcCard.left - 1, rcCard.top, rcCard.right + 1, rcCard.bottom + 2 };
+        HPEN shPen = CreatePen(PS_SOLID, 1, RGB(232, 236, 244));
+        HBRUSH shBrush = CreateSolidBrush(RGB(232, 236, 244));
+        HGDIOBJ oldShP = SelectObject(memDC, shPen);
+        HGDIOBJ oldShB = SelectObject(memDC, shBrush);
+        RoundRect(memDC, rcShadow.left, rcShadow.top, rcShadow.right, rcShadow.bottom, 14, 14);
+        SelectObject(memDC, oldShB);
+        SelectObject(memDC, oldShP);
+        DeleteObject(shBrush);
+        DeleteObject(shPen);
+
+        // Modern White Card Container with rounded corners
+        HPEN cardBorderPen = CreatePen(PS_SOLID, 1, RGB(216, 220, 230));
         HGDIOBJ oldPen = SelectObject(memDC, cardBorderPen);
         HBRUSH cardBrush = CreateSolidBrush(RGB(255, 255, 255));
         HGDIOBJ oldBrush = SelectObject(memDC, cardBrush);
-        RoundRect(memDC, rcCard.left, rcCard.top, rcCard.right, rcCard.bottom, 10, 10);
+        RoundRect(memDC, rcCard.left, rcCard.top, rcCard.right, rcCard.bottom, 12, 12);
         SelectObject(memDC, oldBrush);
         DeleteObject(cardBrush);
         SelectObject(memDC, oldPen);
@@ -2777,7 +2818,7 @@ DWORD WINAPI SyncQueueWorker(LPVOID param) {
 
     // Update Sidebar
     wchar_t libTitle[64];
-    swprintf(libTitle, 64, L"Library (%d songs)", g_deviceTrackCount);
+    swprintf(libTitle, 64, L"🎵 Library (%d)", g_deviceTrackCount);
     TVITEMW tvi;
     memset(&tvi, 0, sizeof(tvi));
     tvi.hItem = g_hItemLibrary;
@@ -2795,6 +2836,28 @@ DWORD WINAPI SyncQueueWorker(LPVOID param) {
     swprintf(doneMsg, 256, L"Sync complete.\n%d track%ls added to library.", syncedCount, syncedCount == 1 ? L"" : L"s");
     MessageBoxW(g_hMainWnd, doneMsg, L"Sync Complete", MB_ICONINFORMATION);
     return 0;
+}
+
+static void ApplyModernVisualStyles(HWND hWnd) {
+    HMODULE hDwm = LoadLibraryA("dwmapi.dll");
+    if (hDwm) {
+        typedef HRESULT (WINAPI *DwmSetWindowAttribute_t)(HWND, DWORD, LPCVOID, DWORD);
+        DwmSetWindowAttribute_t pDwm = (DwmSetWindowAttribute_t)GetProcAddress(hDwm, "DwmSetWindowAttribute");
+        if (pDwm) {
+            DWORD cornerPref = 2; // DWMWCP_ROUND
+            pDwm(hWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPref, sizeof(cornerPref));
+        }
+    }
+
+    HMODULE hUx = LoadLibraryA("uxtheme.dll");
+    if (hUx) {
+        typedef HRESULT (WINAPI *SetWindowTheme_t)(HWND, LPCWSTR, LPCWSTR);
+        SetWindowTheme_t pSetTheme = (SetWindowTheme_t)GetProcAddress(hUx, "SetWindowTheme");
+        if (pSetTheme) {
+            if (g_hListView) pSetTheme(g_hListView, L"Explorer", NULL);
+            if (g_hSidebar) pSetTheme(g_hSidebar, L"Explorer", NULL);
+        }
+    }
 }
 
 // Window Procedure
@@ -2831,19 +2894,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SubclassModernButton(g_hBtnRefresh);
 
         // Instant Filter Search Box
-        g_hSearchEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        g_hSearchEdit = CreateWindowExW(0, L"EDIT", L"",
             WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL,
-            780, 12, 180, 28, hWnd, (HMENU)IDC_EDIT_SEARCH, NULL, NULL);
+            780, 14, 180, 22, hWnd, (HMENU)IDC_EDIT_SEARCH, NULL, NULL);
         SendMessageW(g_hSearchEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
-        SendMessageW(g_hSearchEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Filter tracks (Ctrl+F)...");
+        SendMessageW(g_hSearchEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Search tracks (Ctrl+F)...");
         s_oldEditProc = (WNDPROC)SetWindowLongPtrW(g_hSearchEdit, GWLP_WNDPROC, (LONG_PTR)SearchEditSubclass);
 
         // Left Sidebar (Clean TreeView Source List)
         g_hSidebar = CreateWindowExW(0, WC_TREEVIEWW, L"",
-            WS_VISIBLE | WS_CHILD | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
+            WS_VISIBLE | WS_CHILD | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT | TVS_NOHSCROLL,
             0, 52, 220, 350, hWnd, (HMENU)IDC_TREE_SIDEBAR, NULL, NULL);
         SendMessageW(g_hSidebar, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessageW(g_hSidebar, TVM_SETBKCOLOR, 0, (LPARAM)COLOR_SIDEBAR_BG);
+        SendMessageW(g_hSidebar, TVM_SETITEMHEIGHT, 28, 0);
 
         // Album Art Preview Box in Sidebar
         HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(hWnd, GWLP_HINSTANCE);
@@ -2866,21 +2930,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         tvis.hParent = hDev;
         tvis.item.state = TVIS_BOLD;
         wchar_t libTitle[64];
-        swprintf(libTitle, 64, L"Library (%d)", g_deviceTrackCount);
+        swprintf(libTitle, 64, L"🎵 Library (%d)", g_deviceTrackCount);
         tvis.item.pszText = libTitle;
         g_hItemLibrary = (HTREEITEM)SendMessageW(g_hSidebar, TVM_INSERTITEMW, 0, (LPARAM)&tvis);
 
-        tvis.item.pszText = L"Transfer Queue (0)";
+        tvis.item.pszText = L"⚡ Transfer Queue (0)";
         g_hItemQueue = (HTREEITEM)SendMessageW(g_hSidebar, TVM_INSERTITEMW, 0, (LPARAM)&tvis);
 
         SendMessageW(g_hSidebar, TVM_SELECTITEM, TVGN_CARET, (LPARAM)g_hItemLibrary);
 
         // Main ListView
-        g_hListView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        g_hListView = CreateWindowExW(0, WC_LISTVIEWW, L"",
             WS_VISIBLE | WS_CHILD | LVS_REPORT | LVS_SHOWSELALWAYS,
             220, 52, 850, 560, hWnd, (HMENU)IDC_LIST_MAIN, NULL, NULL);
         SendMessageW(g_hListView, WM_SETFONT, (WPARAM)hFont, TRUE);
-        ListView_SetExtendedListViewStyle(g_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+        ListView_SetExtendedListViewStyle(g_hListView, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+
+        // Spacious, modern 26px row height
+        HIMAGELIST hRowSpacing = ImageList_Create(1, 26, ILC_COLOR32, 1, 1);
+        ListView_SetImageList(g_hListView, hRowSpacing, LVSIL_SMALL);
+
+        ApplyModernVisualStyles(hWnd);
 
         // Sync Queue Button (only shown when in queue view)
         g_hBtnSyncQueue = CreateWindowW(L"BUTTON", L"⚡ Sync Queue",
@@ -2926,9 +2996,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         int btnY = 11;
         int btnH = 30;
 
-        int searchW = width > 1100 ? 190 : 150;
-        MoveWindow(g_hSearchEdit, right - searchW, btnY + 1, searchW, 28, TRUE);
-        right -= (searchW + 8);
+        int searchW = width > 1100 ? 200 : 160;
+        int searchX = right - searchW;
+        MoveWindow(g_hSearchEdit, searchX + 26, btnY + 5, searchW - 34, 20, TRUE);
+        right -= (searchW + 12);
 
         int refreshW = 85;
         MoveWindow(g_hBtnRefresh, right - refreshW, btnY, refreshW, btnH, TRUE);
@@ -2977,7 +3048,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_APP_DEVICE_CONNECTED: {
         wchar_t libTitle[64];
-        swprintf(libTitle, 64, L"Library (%d songs)", g_deviceTrackCount);
+        swprintf(libTitle, 64, L"🎵 Library (%d)", g_deviceTrackCount);
         TVITEMW tvi;
         memset(&tvi, 0, sizeof(tvi));
         tvi.hItem = g_hItemLibrary;
@@ -3002,7 +3073,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         memset(&tvi, 0, sizeof(tvi));
         tvi.hItem = g_hItemLibrary;
         tvi.mask = TVIF_TEXT;
-        tvi.pszText = L"Library (Disconnected)";
+        tvi.pszText = L"🎵 Library (Disconnected)";
         SendMessageW(g_hSidebar, TVM_SETITEMW, 0, (LPARAM)&tvi);
 
         PopulateListView();
@@ -3246,7 +3317,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     // Sidebar Node Selection Switcher & ListView Notifications
     case WM_NOTIFY: {
         LPNMHDR pnmh = (LPNMHDR)lParam;
-        if (pnmh->idFrom == IDC_TREE_SIDEBAR && pnmh->code == TVN_SELCHANGEDW) {
+        if (pnmh->idFrom == IDC_TREE_SIDEBAR && pnmh->code == NM_CUSTOMDRAW) {
+            LPNMTVCUSTOMDRAW lptvcd = (LPNMTVCUSTOMDRAW)lParam;
+            switch (lptvcd->nmcd.dwDrawStage) {
+            case CDDS_PREPAINT: return CDRF_NOTIFYITEMDRAW;
+            case CDDS_ITEMPREPAINT: {
+                HTREEITEM hItem = (HTREEITEM)lptvcd->nmcd.dwItemSpec;
+                if (hItem == TreeView_GetSelection(g_hSidebar)) {
+                    lptvcd->clrTextBk = COLOR_SIDEBAR_SEL;
+                    lptvcd->clrText = RGB(12, 65, 145);
+                } else {
+                    lptvcd->clrTextBk = COLOR_SIDEBAR_BG;
+                    lptvcd->clrText = RGB(36, 42, 54);
+                }
+                return CDRF_DODEFAULT;
+            }
+            }
+        } else if (pnmh->idFrom == IDC_TREE_SIDEBAR && pnmh->code == TVN_SELCHANGEDW) {
             LPNMTREEVIEWW pnmtv = (LPNMTREEVIEWW)lParam;
             wchar_t text[64] = {0};
             TVITEMW item;
@@ -3267,13 +3354,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             case CDDS_PREPAINT: return CDRF_NOTIFYITEMDRAW;
             case CDDS_ITEMPREPAINT: {
                 int row = (int)lplvcd->nmcd.dwItemSpec;
-                if (ListView_GetItemState(g_hListView, row, LVIS_SELECTED) & LVIS_SELECTED) {
-                    lplvcd->clrTextBk = COLOR_ZEBRA_SEL;
-                    lplvcd->clrText = RGB(255, 255, 255);
+                int isSel = (ListView_GetItemState(g_hListView, row, LVIS_SELECTED) & LVIS_SELECTED);
+                int hasFocus = (GetFocus() == g_hListView);
+
+                if (isSel) {
+                    if (hasFocus) {
+                        lplvcd->clrTextBk = COLOR_ZEBRA_SEL;
+                        lplvcd->clrText = RGB(255, 255, 255);
+                    } else {
+                        lplvcd->clrTextBk = RGB(228, 236, 246);
+                        lplvcd->clrText = RGB(24, 32, 45);
+                    }
                 } else {
                     lplvcd->clrTextBk = (row % 2 == 0) ? COLOR_ZEBRA_EVEN : COLOR_ZEBRA_ODD;
                     if (g_activeView == VIEW_TRANSFER_QUEUE && row < g_queueCount) {
-                        if (g_queue[row].isDuplicate) lplvcd->clrText = COLOR_TEXT_MUTED;
+                        if (g_queue[row].isDuplicate) lplvcd->clrText = RGB(175, 105, 20);
                         else if (g_queue[row].status == STATUS_SYNCED) lplvcd->clrText = COLOR_TEXT_SUCCESS;
                         else lplvcd->clrText = COLOR_TEXT_PRIMARY;
                     } else {
@@ -3448,6 +3543,55 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         DeleteObject(hPillTitle);
         DeleteObject(hPillSub);
 
+        // Modern Pill Search Capsule in Header
+        if (g_hSearchEdit && IsWindowVisible(g_hSearchEdit)) {
+            RECT rcEdit;
+            GetWindowRect(g_hSearchEdit, &rcEdit);
+            MapWindowPoints(NULL, hWnd, (LPPOINT)&rcEdit, 2);
+
+            RECT rcCapsule = { rcEdit.left - 24, 11, rcEdit.right + 8, 41 };
+            HRGN capRgn = CreateRoundRectRgn(rcCapsule.left, rcCapsule.top, rcCapsule.right + 1, rcCapsule.bottom + 1, 14, 14);
+            SelectClipRgn(hdc, capRgn);
+            HBRUSH whBrush = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(hdc, &rcCapsule, whBrush);
+            DeleteObject(whBrush);
+            SelectClipRgn(hdc, NULL);
+            DeleteObject(capRgn);
+
+            HPEN capBorder = CreatePen(PS_SOLID, 1, RGB(214, 218, 226));
+            HGDIOBJ p1 = SelectObject(hdc, capBorder);
+            HGDIOBJ p2 = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            RoundRect(hdc, rcCapsule.left, rcCapsule.top, rcCapsule.right, rcCapsule.bottom, 14, 14);
+            SelectObject(hdc, p2);
+            SelectObject(hdc, p1);
+            DeleteObject(capBorder);
+
+            // Specular top highlight line inside capsule
+            HPEN capSheen = CreatePen(PS_SOLID, 1, RGB(248, 250, 253));
+            SelectObject(hdc, capSheen);
+            MoveToEx(hdc, rcCapsule.left + 7, rcCapsule.top + 1, NULL);
+            LineTo(hdc, rcCapsule.right - 7, rcCapsule.top + 1);
+            DeleteObject(capSheen);
+
+            // Magnifying Glass Icon (🔍) on left of search capsule
+            HFONT hSearchIcoFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                               CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            SelectObject(hdc, hSearchIcoFont);
+            SetTextColor(hdc, RGB(140, 146, 158));
+            RECT rcIco = { rcCapsule.left + 7, rcCapsule.top, rcEdit.left - 4, rcCapsule.bottom };
+            DrawTextW(hdc, L"🔍", -1, &rcIco, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+            DeleteObject(hSearchIcoFont);
+        }
+
+        // Vertical Dividing Line between Sidebar and Main Content
+        HPEN hSideDiv = CreatePen(PS_SOLID, 1, COLOR_BORDER_LINE);
+        HGDIOBJ oldDivPen = SelectObject(hdc, hSideDiv);
+        MoveToEx(hdc, 220, 52, NULL);
+        LineTo(hdc, 220, clientRc.bottom - 40);
+        SelectObject(hdc, oldDivPen);
+        DeleteObject(hSideDiv);
+
         // Beside pill: track count & audio capacity info (when window has sufficient width)
         if (clientRc.right >= 960) {
             HFONT hStatBold = CreateFontW(12, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
@@ -3491,7 +3635,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                                         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
         SelectObject(hdc, hFooterFont);
         SetTextColor(hdc, RGB(70, 78, 92));
-        RECT rcStat = { 180, rcBottom.top + 8, clientRc.right - 210, rcBottom.bottom - 6 };
+        RECT rcStat = { 235, rcBottom.top + 8, clientRc.right - 210, rcBottom.bottom - 6 };
         DrawTextW(hdc, g_statusText, -1, &rcStat, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
         DeleteObject(hFooterFont);
 
