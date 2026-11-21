@@ -2946,8 +2946,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hListView, WM_SETFONT, (WPARAM)hFont, TRUE);
         ListView_SetExtendedListViewStyle(g_hListView, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
-        // Spacious, modern 26px row height
-        HIMAGELIST hRowSpacing = ImageList_Create(1, 26, ILC_COLOR32, 1, 1);
+        // Compact, clean 20px row height for high information density with minimal whitespace
+        HIMAGELIST hRowSpacing = ImageList_Create(1, 20, ILC_COLOR32, 1, 1);
         ListView_SetImageList(g_hListView, hRowSpacing, LVSIL_SMALL);
 
         ApplyModernVisualStyles(hWnd);
