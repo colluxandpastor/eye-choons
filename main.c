@@ -245,6 +245,23 @@ static void NormalizeWideStr(const wchar_t *in, char *out, int maxLen) {
     NormalizeStr(utf8, out, maxLen);
 }
 
+int IsSupportedAudioFile(const wchar_t *filePath) {
+    if (!filePath || !filePath[0]) return 0;
+    const wchar_t *ext = wcsrchr(filePath, L'.');
+    if (!ext) return 0;
+    if (_wcsicmp(ext, L".mp3") == 0 ||
+        _wcsicmp(ext, L".m4a") == 0 ||
+        _wcsicmp(ext, L".aac") == 0 ||
+        _wcsicmp(ext, L".alac") == 0 ||
+        _wcsicmp(ext, L".flac") == 0 ||
+        _wcsicmp(ext, L".wav") == 0 ||
+        _wcsicmp(ext, L".aiff") == 0 ||
+        _wcsicmp(ext, L".aif") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 int IsDuplicateOnDevice(const wchar_t *title, const wchar_t *artist) {
     if (!g_deviceTracks || g_deviceTrackCount == 0) return 0;
     char normTitle[256] = {0};
@@ -255,7 +272,8 @@ int IsDuplicateOnDevice(const wchar_t *title, const wchar_t *artist) {
 
     for (int i = 0; i < g_deviceTrackCount; ++i) {
         if (strcmp(normTitle, g_deviceTracks[i].normTitle) == 0) {
-            if (normArtist[0] != '\0') {
+            if (normArtist[0] != '\0' && strcmp(normArtist, "unknownartist") != 0 &&
+                g_deviceTracks[i].normArtist[0] != '\0' && strcmp(g_deviceTracks[i].normArtist, "unknownartist") != 0) {
                 if (strcmp(normArtist, g_deviceTracks[i].normArtist) == 0) return 1;
             } else {
                 return 1;
@@ -266,17 +284,18 @@ int IsDuplicateOnDevice(const wchar_t *title, const wchar_t *artist) {
 }
 
 void CheckDuplicates() {
+    int writeIdx = 0;
     for (int i = 0; i < g_queueCount; ++i) {
         if (IsDuplicateOnDevice(g_queue[i].title, g_queue[i].artist)) {
-            g_queue[i].isDuplicate = 1;
-            g_queue[i].status = STATUS_DUPLICATE;
-        } else {
-            g_queue[i].isDuplicate = 0;
-            if (g_queue[i].status == STATUS_DUPLICATE) {
-                g_queue[i].status = STATUS_READY;
-            }
+            // Already on the phone - do not keep in queue!
+            continue;
         }
+        if (writeIdx != i) {
+            g_queue[writeIdx] = g_queue[i];
+        }
+        writeIdx++;
     }
+    g_queueCount = writeIdx;
 }
 
 // Synchsafe integer conversion for ID3v2
@@ -323,6 +342,7 @@ static void parse_text_frame(const unsigned char *data, int dataSize, wchar_t *o
 }
 
 int ReadAudioMetadata(const wchar_t *filePath, QueueTrack *track) {
+    if (!filePath || !IsSupportedAudioFile(filePath)) return 0;
     memset(track, 0, sizeof(QueueTrack));
     wcsncpy(track->filePath, filePath, MAX_PATH - 1);
 
@@ -840,7 +860,10 @@ void PopulateListView() {
     UpdateWindow(g_hListView);
 }
 
+static int g_lastSkippedDuplicates = 0;
+
 void AddFileToQueue(const wchar_t *filePath) {
+    if (!filePath || !IsSupportedAudioFile(filePath)) return;
     if (g_queueCount >= MAX_QUEUE_TRACKS) return;
     for (int i = 0; i < g_queueCount; ++i) {
         if (_wcsicmp(g_queue[i].filePath, filePath) == 0) return;
@@ -849,14 +872,14 @@ void AddFileToQueue(const wchar_t *filePath) {
     QueueTrack t;
     if (!ReadAudioMetadata(filePath, &t)) return;
 
+    // Do NOT add music to the queue when it's already on the phone!
     if (IsDuplicateOnDevice(t.title, t.artist)) {
-        t.isDuplicate = 1;
-        t.status = STATUS_DUPLICATE;
-    } else {
-        t.isDuplicate = 0;
-        t.status = STATUS_READY;
+        g_lastSkippedDuplicates++;
+        return;
     }
 
+    t.isDuplicate = 0;
+    t.status = STATUS_READY;
     g_queue[g_queueCount++] = t;
 }
 
@@ -876,13 +899,8 @@ void AddFolderToQueue(const wchar_t *folderPath) {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             AddFolderToQueue(fullPath);
         } else {
-            const wchar_t *ext = wcsrchr(fd.cFileName, L'.');
-            if (ext) {
-                if (_wcsicmp(ext, L".mp3") == 0 || _wcsicmp(ext, L".m4a") == 0 ||
-                    _wcsicmp(ext, L".aac") == 0 || _wcsicmp(ext, L".flac") == 0 ||
-                    _wcsicmp(ext, L".wav") == 0) {
-                    AddFileToQueue(fullPath);
-                }
+            if (IsSupportedAudioFile(fd.cFileName)) {
+                AddFileToQueue(fullPath);
             }
         }
     } while (FindNextFileW(hFind, &fd));
@@ -964,11 +982,19 @@ void OnPushAlbumClicked() {
 
     // Save previous count
     int prevQueueCount = g_queueCount;
+    g_lastSkippedDuplicates = 0;
     AddFolderToQueue(albumFolder);
     int addedCount = g_queueCount - prevQueueCount;
 
     if (addedCount == 0) {
-        MessageBoxW(g_hMainWnd, L"No supported audio files found in folder.", L"No Audio Files", MB_ICONINFORMATION);
+        if (g_lastSkippedDuplicates > 0) {
+            wchar_t alreadyMsg[512];
+            swprintf(alreadyMsg, 512, L"All %d track%ls in this folder are already on your iPhone.",
+                     g_lastSkippedDuplicates, g_lastSkippedDuplicates == 1 ? L"" : L"s");
+            MessageBoxW(g_hMainWnd, alreadyMsg, L"Already on iPhone", MB_ICONINFORMATION);
+        } else {
+            MessageBoxW(g_hMainWnd, L"No supported audio files found in folder.", L"No Audio Files", MB_ICONINFORMATION);
+        }
         return;
     }
 
@@ -977,28 +1003,14 @@ void OnPushAlbumClicked() {
     int isComp = 0;
     ResolveAlbumArtistForTrack(&g_queue[prevQueueCount], artistName, 256, &isComp);
 
-    int newTracks = 0, dupTracks = 0;
-    for (int i = prevQueueCount; i < g_queueCount; ++i) {
-        if (g_queue[i].isDuplicate) dupTracks++;
-        else newTracks++;
-    }
-
-    if (newTracks == 0 && addedCount > 0) {
-        wchar_t alreadyMsg[512];
-        swprintf(alreadyMsg, 512, L"All tracks in \"%ls\" are already on your iPhone.", albumName);
-        MessageBoxW(g_hMainWnd, alreadyMsg, L"Already Synced", MB_ICONINFORMATION);
-        SwitchView(VIEW_TRANSFER_QUEUE);
-        SendMessageW(g_hSidebar, TVM_SELECTITEM, TVGN_CARET, (LPARAM)g_hItemQueue);
-        return;
-    }
-
     wchar_t confirmMsg[512];
-    if (dupTracks > 0) {
-        swprintf(confirmMsg, 512, L"Transfer %d new track%ls from \"%ls\"?\n(%d already on device)",
-                 newTracks, newTracks == 1 ? L"" : L"s", albumName, dupTracks);
+    if (g_lastSkippedDuplicates > 0) {
+        swprintf(confirmMsg, 512, L"Transfer %d new track%ls from \"%ls\" to your iPhone?\n(%d duplicate track%ls already on device were skipped)",
+                 addedCount, addedCount == 1 ? L"" : L"s", albumName,
+                 g_lastSkippedDuplicates, g_lastSkippedDuplicates == 1 ? L"" : L"s");
     } else {
         swprintf(confirmMsg, 512, L"Transfer %d track%ls from \"%ls\" to your iPhone?",
-                 newTracks, newTracks == 1 ? L"" : L"s", albumName);
+                 addedCount, addedCount == 1 ? L"" : L"s", albumName);
     }
 
     if (MessageBoxW(g_hMainWnd, confirmMsg, L"Push Album", MB_YESNO | MB_ICONQUESTION) == IDYES) {
@@ -1017,7 +1029,7 @@ void OnAddTracksClicked() {
     memset(&ofn, 0, sizeof(OPENFILENAMEW));
     ofn.lStructSize = sizeof(OPENFILENAMEW);
     ofn.hwndOwner = g_hMainWnd;
-    ofn.lpstrFilter = L"Music Files (*.mp3;*.m4a;*.aac;*.flac;*.wav)\0*.mp3;*.m4a;*.aac;*.flac;*.wav\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"Music Files (*.mp3;*.m4a;*.aac;*.alac;*.flac;*.wav;*.aiff;*.aif)\0*.mp3;*.m4a;*.aac;*.alac;*.flac;*.wav;*.aiff;*.aif\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = fileBuf;
     ofn.nMaxFile = 32768;
     ofn.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -1027,6 +1039,9 @@ void OnAddTracksClicked() {
         wchar_t dir[MAX_PATH];
         wcsncpy(dir, p, MAX_PATH - 1);
         p += wcslen(p) + 1;
+
+        int prevQueueCount = g_queueCount;
+        g_lastSkippedDuplicates = 0;
 
         if (*p == L'\0') {
             AddFileToQueue(dir);
@@ -1038,9 +1053,16 @@ void OnAddTracksClicked() {
                 p += wcslen(p) + 1;
             }
         }
-        CheckDuplicates();
-        SwitchView(VIEW_TRANSFER_QUEUE);
-        SendMessageW(g_hSidebar, TVM_SELECTITEM, TVGN_CARET, (LPARAM)g_hItemQueue);
+        int added = g_queueCount - prevQueueCount;
+        if (added > 0) {
+            SwitchView(VIEW_TRANSFER_QUEUE);
+            SendMessageW(g_hSidebar, TVM_SELECTITEM, TVGN_CARET, (LPARAM)g_hItemQueue);
+        } else if (g_lastSkippedDuplicates > 0) {
+            wchar_t alreadyMsg[512];
+            swprintf(alreadyMsg, 512, L"%d track%ls already on your iPhone (0 added to queue).",
+                     g_lastSkippedDuplicates, g_lastSkippedDuplicates == 1 ? L" is" : L"s are");
+            MessageBoxW(g_hMainWnd, alreadyMsg, L"Already on iPhone", MB_ICONINFORMATION);
+        }
     }
 }
 
@@ -3417,6 +3439,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_DROPFILES: {
         HDROP hDrop = (HDROP)wParam;
         int prevCount = g_queueCount;
+        g_lastSkippedDuplicates = 0;
         UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
         for (UINT i = 0; i < fileCount; ++i) {
             wchar_t path[MAX_PATH];
@@ -3435,6 +3458,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             CheckDuplicates();
             SwitchView(VIEW_TRANSFER_QUEUE);
             SendMessageW(g_hSidebar, TVM_SELECTITEM, TVGN_CARET, (LPARAM)g_hItemQueue);
+        } else if (g_lastSkippedDuplicates > 0) {
+            swprintf(g_statusText, 256, L"%d dropped track%ls already on your iPhone (0 added to queue).",
+                     g_lastSkippedDuplicates, g_lastSkippedDuplicates == 1 ? L" is" : L"s are");
+            RECT rcClient; GetClientRect(hWnd, &rcClient);
+            RECT rcBottom = { 0, rcClient.bottom - 36, rcClient.right, rcClient.bottom };
+            InvalidateRect(hWnd, &rcBottom, TRUE);
         }
         break;
     }
