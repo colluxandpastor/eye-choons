@@ -147,6 +147,8 @@ static sqlite3_finalize_t pSqlFinalize = NULL;
 static sqlite3_exec_t pSqlExec = NULL;
 static sqlite3_errmsg_t pSqlErrMsg = NULL;
 
+#define DebugLog(...) ((void)0)
+
 // Global App State
 static QueueTrack g_queue[MAX_QUEUE_TRACKS];
 static int g_queueCount = 0;
@@ -1255,15 +1257,31 @@ int LoadDeviceLibrary() {
     return ok;
 }
 
+static void CleanupTempDatabase() {
+    if (g_localDbPath[0] != '\0') {
+        DeleteFileA(g_localDbPath);
+        char tmpWal[MAX_PATH], tmpShm[MAX_PATH];
+        snprintf(tmpWal, sizeof(tmpWal), "%s-wal", g_localDbPath);
+        DeleteFileA(tmpWal);
+        snprintf(tmpShm, sizeof(tmpShm), "%s-shm", g_localDbPath);
+        DeleteFileA(tmpShm);
+    }
+}
+
 DWORD WINAPI DeviceMonitorThread(LPVOID param) {
+    DebugLog("DeviceMonitorThread started");
     while (g_devThreadRunning) {
         int devId = 0;
         char udid[64] = {0};
-        if (Apple_FindDevice(&devId, udid, sizeof(udid))) {
+        int found = Apple_FindDevice(&devId, udid, sizeof(udid));
+        DebugLog("FindDevice: %d, devId=%d", found, devId);
+        if (found) {
             if (!g_deviceConnected || g_currentDeviceId != devId) {
+                DebugLog("Calling LoadDeviceLibrary...");
                 g_currentDeviceId = devId;
                 strncpy(g_currentDeviceUdid, udid, sizeof(g_currentDeviceUdid) - 1);
                 int ok = LoadDeviceLibrary();
+                DebugLog("LoadDeviceLibrary returned: %d", ok);
                 if (ok) {
                     g_deviceConnected = 1;
                     wcsncpy(g_deviceName, L"iPhone Connected", 255);
@@ -1274,6 +1292,13 @@ DWORD WINAPI DeviceMonitorThread(LPVOID param) {
             if (g_deviceConnected) {
                 g_deviceConnected = 0;
                 g_currentDeviceId = 0;
+                CleanupTempDatabase();
+                if (g_deviceTracks) {
+                    free(g_deviceTracks);
+                    g_deviceTracks = NULL;
+                    g_deviceTrackCount = 0;
+                    g_deviceAudioTotalBytes = 0;
+                }
                 PostMessageW(g_hMainWnd, WM_APP_DEVICE_DISCONNECTED, 0, 0);
             }
         }
@@ -2722,6 +2747,7 @@ DWORD WINAPI SyncQueueWorker(LPVOID param) {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
+        DebugLog("WM_CREATE started");
         HFONT hFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
@@ -2827,6 +2853,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Start Background Apple Mobile Device Thread
         g_hDevThread = CreateThread(NULL, 0, DeviceMonitorThread, NULL, 0, NULL);
+        DebugLog("WM_CREATE completed successfully");
         break;
     }
 
@@ -3058,9 +3085,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 PopulateListView();
             } else if (g_deviceConnected && g_currentDeviceId) {
                 LoadDeviceLibrary();
-                PopulateListView();
-            } else {
-                LoadLocalCachedLibrary();
                 PopulateListView();
             }
             break;
@@ -3446,6 +3470,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_DESTROY:
+        DebugLog("WM_DESTROY received!");
+        CleanupTempDatabase();
         if (g_pPreviewBitmap && pDispose) {
             pDispose((GpImage*)g_pPreviewBitmap);
             g_pPreviewBitmap = NULL;
@@ -3470,15 +3496,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // Dynamic Loader for Apple MobileDevice & SQLite3 DLLs
 int InitAppleConduits() {
+    DebugLog("InitAppleConduits started");
     GetModuleFileNameA(NULL, g_appDir, MAX_PATH);
     char *lastSlash = strrchr(g_appDir, '\\');
     if (lastSlash) *lastSlash = '\0';
     else snprintf(g_appDir, sizeof(g_appDir), ".");
 
-    snprintf(g_localDbPath, sizeof(g_localDbPath), "%s\\iPhoneLibrary.db", g_appDir);
+    char tempDir[MAX_PATH] = {0};
+    if (GetTempPathA(MAX_PATH, tempDir) > 0) {
+        snprintf(g_localDbPath, sizeof(g_localDbPath), "%sEyeChoons_%lu.db", tempDir, GetCurrentProcessId());
+    } else {
+        snprintf(g_localDbPath, sizeof(g_localDbPath), "EyeChoons_%lu.tmp", GetCurrentProcessId());
+    }
+    DebugLog("temp db path: %s", g_localDbPath);
 
     HMODULE hSql = LoadLibraryA("winsqlite3.dll");
     if (!hSql) hSql = LoadLibraryA("sqlite3.dll");
+    DebugLog("hSql = %p", hSql);
     if (!hSql) return 0;
 
     pSqlOpen = (sqlite3_open_t)GetProcAddress(hSql, "sqlite3_open");
@@ -3520,6 +3554,7 @@ int InitAppleConduits() {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    DebugLog("WinMain started");
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
     WSADATA wsa;
@@ -3530,16 +3565,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     icex.dwICC = ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES | ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icex);
 
-    if (!InitAppleConduits()) {
+    int conduitsOk = InitAppleConduits();
+    DebugLog("InitAppleConduits returned: %d", conduitsOk);
+    if (!conduitsOk) {
         MessageBoxW(NULL,
             L"Database engine (winsqlite3.dll) failed to load.\n\n"
             L"Running in limited offline mode.",
             L"Eye Choons", MB_ICONWARNING | MB_OK);
     }
 
-    // Immediately load the local cached library snapshot so tracks appear instantly on launch
-    LoadLocalCachedLibrary();
-
+    DebugLog("Registering EyeChoonsArtPreview class...");
     WNDCLASSEXW wca;
     memset(&wca, 0, sizeof(WNDCLASSEXW));
     wca.cbSize = sizeof(WNDCLASSEXW);
@@ -3550,6 +3585,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wca.lpszClassName = L"EyeChoonsArtPreview";
     RegisterClassExW(&wca);
 
+    DebugLog("Registering EyeChoonsWndClass class...");
     WNDCLASSEXW wc;
     memset(&wc, 0, sizeof(WNDCLASSEXW));
     wc.cbSize = sizeof(WNDCLASSEXW);
@@ -3560,7 +3596,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpszClassName = L"EyeChoonsWndClass";
     wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 
-    if (!RegisterClassExW(&wc)) return 0;
+    if (!RegisterClassExW(&wc)) {
+        DebugLog("RegisterClassExW failed, error=%lu", GetLastError());
+        return 0;
+    }
 
     int scrW = GetSystemMetrics(SM_CXSCREEN);
     int scrH = GetSystemMetrics(SM_CYSCREEN);
@@ -3577,7 +3616,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         posX, posY, winW, winH,
         NULL, NULL, hInstance, NULL);
 
-    if (!g_hMainWnd) return 0;
+    if (!g_hMainWnd) {
+        DebugLog("CreateWindowExW failed, error=%lu", GetLastError());
+        return 0;
+    }
+    DebugLog("CreateWindowExW succeeded! g_hMainWnd=%p", g_hMainWnd);
 
     ShowWindow(g_hMainWnd, SW_SHOWNORMAL);
     UpdateWindow(g_hMainWnd);
