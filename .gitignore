@@ -26,6 +26,7 @@ test_*.c
 # Editor and IDE configurations
 .vscode/
 .idea/
+release/
 
 # OS metadata
 Thumbs.db
