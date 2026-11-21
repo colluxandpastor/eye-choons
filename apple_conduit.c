@@ -7,6 +7,15 @@
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "crypt32.lib")
 
+static void ensure_winsock_init() {
+    static int s_inited = 0;
+    if (!s_inited) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+        s_inited = 1;
+    }
+}
+
 static int recv_exact(SOCKET s, char *buf, int len) {
     int total = 0;
     while (total < len) {
@@ -18,6 +27,7 @@ static int recv_exact(SOCKET s, char *buf, int len) {
 }
 
 static SOCKET usbmux_connect_port(int devId, unsigned short port) {
+    ensure_winsock_init();
     SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     struct sockaddr_in sin = {0};
     sin.sin_family = AF_INET;
@@ -74,14 +84,20 @@ static char *recv_lockdown_plist(SOCKET s) {
 }
 
 int Apple_FindDevice(int *outDevId, char *outUdid, int maxUdid) {
+    ensure_winsock_init();
     SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) return 0;
+
     struct sockaddr_in sin = {0};
     sin.sin_family = AF_INET;
     sin.sin_port = htons(27015);
     sin.sin_addr.s_addr = inet_addr("127.0.0.1");
-    if (connect(s, (struct sockaddr*)&sin, sizeof(sin)) != 0) return 0;
+    if (connect(s, (struct sockaddr*)&sin, sizeof(sin)) != 0) {
+        closesocket(s);
+        return 0;
+    }
 
-    DWORD tv = 1000;
+    DWORD tv = 2000;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     const char *listenPlist = 
@@ -96,32 +112,42 @@ int Apple_FindDevice(int *outDevId, char *outUdid, int maxUdid) {
     send(s, (char*)hdr, 16, 0);
     send(s, listenPlist, plLen, 0);
 
-    unsigned int rHdr[4];
-    if (recv_exact(s, (char*)rHdr, 16) != 16) { closesocket(s); return 0; }
-    char *dump = (char*)malloc(rHdr[0] - 16);
-    recv_exact(s, dump, rHdr[0] - 16);
-    free(dump);
-
-    if (recv_exact(s, (char*)rHdr, 16) != 16) { closesocket(s); return 0; }
-    char *evt = (char*)malloc(rHdr[0] - 16 + 1);
-    recv_exact(s, evt, rHdr[0] - 16);
-    evt[rHdr[0] - 16] = 0;
-
     int devId = 0;
-    char *pDev = strstr(evt, "<key>DeviceID</key>");
-    if (pDev) {
-        char *pInt = strstr(pDev, "<integer>");
-        if (pInt) sscanf(pInt, "<integer>%d</integer>", &devId);
-    }
-    if (outUdid && maxUdid > 0) {
-        outUdid[0] = 0;
-        char *pSer = strstr(evt, "<key>SerialNumber</key>");
-        if (pSer) {
-            char *pStr = strstr(pSer, "<string>");
-            if (pStr) sscanf(pStr, "<string>%63[^<]</string>", outUdid);
+    for (int iter = 0; iter < 5 && devId == 0; iter++) {
+        unsigned int rHdr[4];
+        if (recv_exact(s, (char*)rHdr, 16) != 16) break;
+        if (rHdr[0] < 16 || rHdr[0] > 65536) break;
+
+        int payLen = (int)(rHdr[0] - 16);
+        char *msg = (char*)malloc(payLen + 1);
+        if (!msg) break;
+
+        if (recv_exact(s, msg, payLen) != payLen) {
+            free(msg);
+            break;
         }
+        msg[payLen] = 0;
+
+        if (strstr(msg, "<string>Attached</string>") || strstr(msg, "<key>DeviceID</key>")) {
+            char *pDev = strstr(msg, "<key>DeviceID</key>");
+            if (pDev) {
+                char *pInt = strstr(pDev, "<integer>");
+                if (pInt) sscanf(pInt, "<integer>%d</integer>", &devId);
+            }
+            if (outUdid && maxUdid > 0) {
+                outUdid[0] = 0;
+                char *pSer = strstr(msg, "<key>SerialNumber</key>");
+                if (pSer) {
+                    char *pStr = strstr(pSer, "<string>");
+                    if (pStr) sscanf(pStr, "<string>%63[^<]</string>", outUdid);
+                }
+            }
+            free(msg);
+            break;
+        }
+        free(msg);
     }
-    free(evt);
+
     closesocket(s);
     if (outDevId) *outDevId = devId;
     return (devId > 0);

@@ -1260,7 +1260,7 @@ DWORD WINAPI DeviceMonitorThread(LPVOID param) {
         int devId = 0;
         char udid[64] = {0};
         if (Apple_FindDevice(&devId, udid, sizeof(udid))) {
-            if (!g_deviceConnected) {
+            if (!g_deviceConnected || g_currentDeviceId != devId) {
                 g_currentDeviceId = devId;
                 strncpy(g_currentDeviceUdid, udid, sizeof(g_currentDeviceUdid) - 1);
                 int ok = LoadDeviceLibrary();
@@ -3046,7 +3046,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case IDC_BTN_ADDTRACKS: OnAddTracksClicked(); break;
         case IDC_BTN_EXPORT:    ExportSelectedTracks(); break;
         case IDC_BTN_REFRESH: {
-            if (g_deviceConnected && g_currentDeviceId) {
+            int devId = 0;
+            char udid[64] = {0};
+            if (Apple_FindDevice(&devId, udid, sizeof(udid))) {
+                g_currentDeviceId = devId;
+                strncpy(g_currentDeviceUdid, udid, sizeof(g_currentDeviceUdid) - 1);
+                if (LoadDeviceLibrary()) {
+                    g_deviceConnected = 1;
+                    PostMessageW(hWnd, WM_APP_DEVICE_CONNECTED, 0, 0);
+                }
+                PopulateListView();
+            } else if (g_deviceConnected && g_currentDeviceId) {
                 LoadDeviceLibrary();
                 PopulateListView();
             } else {
@@ -3512,6 +3522,9 @@ int InitAppleConduits() {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES | ICC_STANDARD_CLASSES;
@@ -3607,6 +3620,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (g_gdiToken && pGdiShutdown) pGdiShutdown(g_gdiToken);
     if (g_hGdi) FreeLibrary(g_hGdi);
+    WSACleanup();
     CoUninitialize();
 
     return (int)msg.wParam;
