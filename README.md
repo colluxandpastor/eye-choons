@@ -1,3 +1,4 @@
+This is slop but it works for my use case. 
 # Eye Choons (iPhone Album & Library Manager)
 
 A fast, lightweight, native Windows application written in pure C (Win32) for direct, album-centric music synchronization and management on iPhones without destructive full-library wipes.
